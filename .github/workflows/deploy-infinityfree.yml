@@ -1,0 +1,97 @@
+
+name: Deploy Laravel to InfinityFree
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: infinityfree-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate Laravel project
+        run: |
+          test -f artisan
+          test -f composer.json
+          test -f composer.lock
+          test -f package.json
+          test -f package-lock.json
+          test -f public/index.php
+          test ! -f .env
+          test ! -d vendor
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+          extensions: mbstring, pdo_mysql, openssl, tokenizer, xml, ctype, curl, fileinfo, dom
+          coverage: none
+
+      - name: Validate Composer configuration
+        run: composer validate --no-check-publish
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Vite production assets
+        run: npm run build
+
+      - name: Verify Vite build
+        run: |
+          test -f public/build/manifest.json
+          echo "Vite production manifest generated successfully."
+
+      - name: Deploy to InfinityFree (Dry Run)
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftp
+          port: 21
+          local-dir: ./
+          server-dir: /htdocs/
+          dry-run: true
+          dangerous-clean-slate: false
+          log-level: standard
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/.github/**
+            **/node_modules/**
+            **/tests/**
+            **/test/**
+            .env
+            .env.*
+            **/.env
+            **/.env.*
+            vendor/**
+            **/vendor/**
+            storage/**
+            **/storage/**
+            public/storage/**
+            public/hot
+            **/*.log
+            .ftp-deploy-sync-state.json
